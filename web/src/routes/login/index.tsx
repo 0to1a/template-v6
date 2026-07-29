@@ -1,17 +1,12 @@
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation } from '@connectrpc/connect-query';
+import { ArrowRight, Mail } from 'lucide-react';
 
+import { AuthShell } from '@/lib/components/auth-shell';
 import { requestLogin } from '@/lib/gen/auth/auth-AuthService_connectquery';
 import { setPendingEmail } from '@/lib/login';
 import { Button } from '@/lib/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle
-} from '@/lib/components/ui/card';
 import { Input } from '@/lib/components/ui/input';
 import { Label } from '@/lib/components/ui/label';
 
@@ -40,38 +35,55 @@ function LoginComponent() {
 
 	return (
 		<>
-			<title>Sign in · Template v6</title>
-			<main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center p-8">
-				<Card>
-					<CardHeader>
-						<CardTitle>Sign in</CardTitle>
-						<CardDescription>
-							Enter your email and we will send you a one-time code.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<form className="flex flex-col gap-4" onSubmit={submit}>
-							<div className="flex flex-col gap-1.5">
-								<Label htmlFor="email">Email</Label>
-								<Input
-									id="email"
-									type="email"
-									name="email"
-									required
-									value={email}
-									onChange={(event) => setEmail(event.target.value)}
-								/>
-							</div>
+			<title>Log in · Template</title>
+			<AuthShell
+				eyebrow="Welcome back"
+				title="Log in to your account"
+				description="Enter your email address and we'll send you a secure, one-time code. No password needed."
+			>
+				<form className="flex flex-col gap-5" onSubmit={submit}>
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="email">Email address</Label>
+						<div className="relative">
+							<Mail
+								className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+								aria-hidden="true"
+							/>
+							<Input
+								id="email"
+								className="h-11 pl-9"
+								type="email"
+								name="email"
+								autoComplete="email"
+								placeholder="you@company.com"
+								required
+								aria-invalid={error ? true : undefined}
+								aria-describedby={error ? 'login-error' : undefined}
+								value={email}
+								onChange={(event) => setEmail(event.target.value)}
+							/>
+						</div>
+					</div>
 
-							{error && <p className="text-sm text-destructive">{error}</p>}
+					{error && (
+						<p
+							id="login-error"
+							role="alert"
+							className="rounded-lg bg-destructive/8 px-3 py-2.5 text-sm text-destructive"
+						>
+							{error}
+						</p>
+					)}
 
-							<Button type="submit" disabled={mutation.isPending}>
-								{mutation.isPending ? 'Sending…' : 'Send code'}
-							</Button>
-						</form>
-					</CardContent>
-				</Card>
-			</main>
+					<Button className="h-11 w-full" type="submit" disabled={mutation.isPending}>
+						{mutation.isPending ? 'Sending code…' : 'Continue with email'}
+						{!mutation.isPending && <ArrowRight data-icon="inline-end" />}
+					</Button>
+					<p className="text-center text-xs leading-5 text-muted-foreground">
+						By continuing, you agree to our Terms of Service and Privacy Policy.
+					</p>
+				</form>
+			</AuthShell>
 		</>
 	);
 }
