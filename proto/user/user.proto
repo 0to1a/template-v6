@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "project/internal/gen/user;userpb";
+
+// Both RPCs are protected: there is no self-service allowlist entry for
+// this service, and the acting user is always the bearer token's principal,
+// never a client-supplied identifier.
+service UserService {
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+
+  // display_name is trimmed server-side; an empty string is valid (clears
+  // the display name).
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+}
+
+// GetProfileRequest is this package's own zero-field request message.
+// auth.proto has no reusable Empty of its own (RequestLogin/SubmitLogin both
+// take a real request payload) to import, and buf's lint STANDARD ruleset
+// (see buf.yaml) requires each RPC's request/response to be its own,
+// uniquely-named message — so a shared cross-package "Empty" or a single
+// "Profile" reused as both RPCs' response would fail lint either way. Both
+// response messages below carry the same two fields by design.
+message GetProfileRequest {}
+
+message GetProfileResponse {
+  string email = 1;
+  string display_name = 2;
+}
+
+message UpdateProfileRequest {
+  string display_name = 1;
+}
+
+message UpdateProfileResponse {
+  string email = 1;
+  string display_name = 2;
+}

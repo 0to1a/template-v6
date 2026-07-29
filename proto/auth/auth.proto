@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "project/internal/gen/auth;authpb";
+
+// Naming is fixed by earlier design work: RequestLogin/SubmitLogin.
+// Do not introduce RequestOTP/VerifyOTP/VerifyLogin variants anywhere.
+service AuthService {
+  // RequestLogin always returns a generic response, whether or not the email
+  // belongs to an active user, to prevent account enumeration.
+  rpc RequestLogin(RequestLoginRequest) returns (RequestLoginResponse);
+
+  // Unknown users or invalid codes return a generic Unauthenticated error.
+  rpc SubmitLogin(SubmitLoginRequest) returns (SubmitLoginResponse);
+}
+
+message RequestLoginRequest {
+  string email = 1;
+}
+
+message RequestLoginResponse {}
+
+message SubmitLoginRequest {
+  string email = 1;
+  string code = 2;
+}
+
+message SubmitLoginResponse {
+  string access_token = 1;
+}
