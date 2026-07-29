@@ -1,0 +1,26 @@
+# Environment
+.env
+
+# Go
+/bin/
+/tmp/
+internal/gen/
+
+# Generated frontend / Buf output
+web/src/lib/gen/
+web/dist/*
+!web/dist/.gitkeep
+web/src/routeTree.gen.ts
+
+# make docs artifacts (M2) — regenerable, only docs/routes.json is tracked
+docs/route-catalog.html
+docs/screenshots/
+
+# Frontend tooling
+web/node_modules/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+.osgrep
