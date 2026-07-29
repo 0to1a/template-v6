@@ -1,0 +1,8 @@
+{
+	"rpc": {
+		"user.UserService.GetProfile": {
+			"email": "person@example.com",
+			"displayName": "Ada Lovelace"
+		}
+	}
+}

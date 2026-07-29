@@ -1,0 +1,34 @@
+{
+	"title": "Your profile",
+	"description": "Protected page behind the _authenticated layout. Shows the caller's email and lets them edit display_name via UpdateProfile.",
+	"auth": "required",
+	"states": {
+		"filled": {
+			"rpc": {
+				"user.UserService.GetProfile": {
+					"email": "ada@example.com",
+					"displayName": "Ada Lovelace"
+				}
+			}
+		},
+		"empty": {
+			"rpc": {
+				"user.UserService.GetProfile": {
+					"email": "new-user@example.com",
+					"displayName": ""
+				}
+			}
+		},
+		"error": {
+			"fill": { "input[name=display_name]": "Grace Hopper" },
+			"submit": "button[type=submit]",
+			"rpc": {
+				"user.UserService.GetProfile": {
+					"email": "ada@example.com",
+					"displayName": "Ada Lovelace"
+				},
+				"user.UserService.UpdateProfile": { "$error": "unavailable" }
+			}
+		}
+	}
+}
