@@ -55,6 +55,8 @@ interface RouteFixture {
 	title: string;
 	description: string;
 	auth: 'public' | 'required';
+	// Concrete values for $segment placeholders in the route path (e.g. { postId: "123" })
+	params?: Record<string, string>;
 	states: Record<string, StateFixture>;
 }
 
@@ -81,7 +83,7 @@ function screenshotDirFor(urlPath: string): string {
 	return join(SCREENSHOTS_DIR, relativePath);
 }
 
-// _dir/_file = layout, no segment; $param skipped
+// _dir/_file = layout, no segment; $param kept literal, resolved later via fixture.params
 function discoverRoutes(dir: string, urlSegments: string[]): DiscoveredRoute[] {
 	const entries = readdirSync(dir, { withFileTypes: true });
 	const routes: DiscoveredRoute[] = [];
@@ -98,19 +100,25 @@ function discoverRoutes(dir: string, urlSegments: string[]): DiscoveredRoute[] {
 		const base = entry.name.slice(0, -'.tsx'.length);
 		if (base.startsWith('_')) continue; // pathless layout
 
-		if (base.includes('$')) {
-			console.warn(
-				`make docs: skipping dynamic route segment "${entry.name}" in ${relative(REPO_ROOT, dir)} (out of scope)`
-			);
-			continue;
-		}
-
 		const segments = base === 'index' ? urlSegments : [...urlSegments, base];
 		const urlPath = segments.length === 0 ? '/' : `/${segments.join('/')}`;
 		routes.push({ urlPath, sourceFile: toPosix(relative(REPO_ROOT, join(dir, entry.name))) });
 	}
 
 	return routes;
+}
+
+// Substitutes $segment placeholders (e.g. "$postId") with values from fixture.params
+function resolveDynamicPath(urlPath: string, params: Record<string, string> | undefined): string {
+	return urlPath.replace(/\$([A-Za-z0-9_]+)/g, (match, name: string) => {
+		const value = params?.[name];
+		if (value === undefined) {
+			throw new Error(
+				`make docs: route "${urlPath}" has dynamic segment "${match}" but its fixture is missing params.${name}`
+			);
+		}
+		return value;
+	});
 }
 
 // Serves bun run build output, with SPA fallback
@@ -333,6 +341,7 @@ async function renderState(
 		...(fixture.auth === 'required' ? (authFixture.rpc ?? {}) : {}),
 		...(state.rpc ?? {})
 	};
+	const resolvedUrlPath = resolveDynamicPath(route.urlPath, fixture.params);
 
 	const context = await browser.newContext({
 		viewport: VIEWPORT,
@@ -396,7 +405,7 @@ async function renderState(
 		}, state.localStorage);
 	}
 
-	await page.goto(`http://localhost:${PORT}${state.visit ?? route.urlPath}`, {
+	await page.goto(`http://localhost:${PORT}${state.visit ?? resolvedUrlPath}`, {
 		waitUntil: 'networkidle'
 	});
 	await page.evaluate(() => document.fonts.ready);
@@ -408,14 +417,14 @@ async function renderState(
 	}
 	if (state.submit) {
 		await page.click(state.submit);
-		await page.waitForURL(`**${route.urlPath}`);
+		await page.waitForURL(`**${resolvedUrlPath}`);
 		await page.waitForLoadState('networkidle');
 		await page.evaluate(() => document.fonts.ready);
 	}
 
 	const screenshotAbsPath = join(screenshotDirFor(route.urlPath), `${stateName}.png`);
 	mkdirSync(dirname(screenshotAbsPath), { recursive: true });
-	await page.screenshot({ path: screenshotAbsPath });
+	await page.screenshot({ path: screenshotAbsPath, fullPage: true });
 
 	await context.close();
 
@@ -614,7 +623,7 @@ function renderCatalogHtml(routes: RouteEntry[], templates: TemplateEntry[]): st
   .states { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
   .state { border: 1px solid #e2e2e2; border-radius: 6px; overflow: hidden; }
   .state figure { margin: 0; background: #f4f4f4; aspect-ratio: 16/10; display: flex; align-items: center; justify-content: center; position: relative; }
-  .state img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  .state img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; cursor: zoom-in; }
   /* Templates vary wildly in aspect ratio; fit the whole email instead of cropping it */
   .state.template-card figure { aspect-ratio: 16/10; }
   .state.template-card img { object-fit: contain; }
@@ -622,6 +631,22 @@ function renderCatalogHtml(routes: RouteEntry[], templates: TemplateEntry[]): st
   .state-body { padding: 10px 12px; }
   .state-name { font-weight: 600; font-size: 13px; margin: 0 0 4px; }
   .state-note { color: #666; font-size: 12.5px; margin: 0; }
+
+  /* Lightbox: fullPage screenshots can be much taller than the thumbnail crop */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 1000;
+    display: none; align-items: flex-start; justify-content: center;
+    background: rgba(0, 0, 0, .85); overflow: auto; padding: 40px; cursor: zoom-out;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 90vw; cursor: zoom-in; box-shadow: 0 4px 24px rgba(0, 0, 0, .5); }
+  .lightbox.zoomed { align-items: flex-start; justify-content: flex-start; }
+  .lightbox.zoomed img { max-width: none; cursor: zoom-out; }
+  .lightbox-close {
+    position: fixed; top: 16px; right: 20px; color: #fff; font-size: 28px;
+    line-height: 1; cursor: pointer; opacity: .8;
+  }
+  .lightbox-close:hover { opacity: 1; }
 
   .empty { color: #999; font-style: italic; }
   @media (max-width: 720px) {
@@ -648,6 +673,11 @@ const TEMPLATES = ${templatesJson};
     <nav id="templates-nav"></nav>
   </aside>
   <main id="main"></main>
+</div>
+
+<div id="lightbox" class="lightbox">
+  <span class="lightbox-close">&times;</span>
+  <img id="lightbox-img" src="" alt="">
 </div>
 
 <script>
@@ -742,6 +772,36 @@ const observer = new IntersectionObserver(entries => {
 new MutationObserver(() => document.querySelectorAll(".route").forEach(el => observer.observe(el)))
   .observe(document.getElementById("main"), { childList: true });
 document.querySelectorAll(".route").forEach(el => observer.observe(el));
+
+const lightbox = document.getElementById("lightbox");
+const lightboxImg = document.getElementById("lightbox-img");
+
+function openLightbox(src, alt) {
+  lightboxImg.src = src;
+  lightboxImg.alt = alt;
+  lightbox.classList.remove("zoomed");
+  lightbox.classList.add("open");
+}
+function closeLightbox() {
+  lightbox.classList.remove("open", "zoomed");
+  lightboxImg.src = "";
+}
+
+document.getElementById("main").addEventListener("click", e => {
+  const img = e.target.closest("figure img");
+  if (!img) return;
+  openLightbox(img.src, img.alt);
+});
+lightbox.addEventListener("click", e => {
+  if (e.target === lightboxImg) {
+    lightbox.classList.toggle("zoomed");
+    return;
+  }
+  closeLightbox();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeLightbox();
+});
 </script>
 </body>
 </html>
