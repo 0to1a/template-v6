@@ -1,11 +1,10 @@
 package auth
 
 import (
-	"bytes"
 	"context"
-	_ "embed"
-	"html/template"
 	"log"
+
+	"project/internal/template"
 )
 
 // Implementations must never log the code.
@@ -19,11 +18,6 @@ type NoopLoginCodeSender struct{}
 func (NoopLoginCodeSender) SendLoginCode(context.Context, string, string) error {
 	return nil
 }
-
-//go:embed otp.html
-var otpTemplateSource string
-
-var otpTemplate = template.Must(template.New("otp").Parse(otpTemplateSource))
 
 // Decouples this package from SMTP specifics
 type EmailSender interface {
@@ -40,13 +34,13 @@ func NewEmailLoginCodeSender(sender EmailSender) *EmailLoginCodeSender {
 
 // Logs failures only; caller discards to avoid oracle
 func (e *EmailLoginCodeSender) SendLoginCode(ctx context.Context, email, code string) error {
-	var body bytes.Buffer
-	if err := otpTemplate.Execute(&body, struct{ Code string }{Code: code}); err != nil {
+	body, err := template.RenderOTP(template.OTPData{Code: code})
+	if err != nil {
 		log.Printf("auth: rendering login code email failed: %v", err)
 		return err
 	}
 
-	if err := e.sender.Send(ctx, email, "Your login code", body.String()); err != nil {
+	if err := e.sender.Send(ctx, email, "Your login code", body); err != nil {
 		log.Printf("auth: sending login code email failed: %v", err)
 		return err
 	}

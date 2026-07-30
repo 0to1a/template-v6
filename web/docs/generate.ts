@@ -18,12 +18,17 @@ const ROUTES_DIR = join(WEB_DIR, 'src/routes');
 const DIST_DIR = join(WEB_DIR, 'dist');
 const FIXTURES_DIR = join(import.meta.dir, 'fixtures');
 const AUTH_FIXTURE_PATH = join(FIXTURES_DIR, '_auth.json');
+const TEMPLATES_DIR = join(REPO_ROOT, 'internal/template');
 const DOCS_DIR = join(REPO_ROOT, 'docs');
 const SCREENSHOTS_DIR = join(DOCS_DIR, 'screenshots');
 const ROUTES_JSON_PATH = join(DOCS_DIR, 'routes.json');
+const TEMPLATES_JSON_PATH = join(DOCS_DIR, 'templates.json');
 const CATALOG_HTML_PATH = join(DOCS_DIR, 'route-catalog.html');
 const PORT = 4173;
 const VIEWPORT = { width: 1280, height: 800 };
+// Narrower than VIEWPORT: emails are single-column, so a wide capture wastes most
+// of the frame as side padding and leaves the fixed-size thumbnail box mostly empty
+const TEMPLATE_VIEWPORT = { width: 600, height: 800 };
 
 interface GenerateSpec {
 	count: number;
@@ -431,13 +436,110 @@ function writeRoutesJson(routes: RouteEntry[]): void {
 	writeFileSync(ROUTES_JSON_PATH, `${JSON.stringify(manifest, null, '\t')}\n`);
 }
 
+interface TemplateEntry {
+	name: string;
+	path: string; // repo-root-relative, forward-slashed
+	variables: string[]; // kept as literal "{{.Field}}" placeholders
+	screenshot: string; // repo-root-relative, forward-slashed
+}
+
+const VARIABLE_PATTERN = /\{\{\s*\.(\w+)\s*\}\}/g;
+
+// {{.Field}} placeholders, deduped and sorted, kept in mustache syntax
+function extractVariables(source: string): string[] {
+	const found = new Set<string>();
+	for (const match of source.matchAll(VARIABLE_PATTERN)) {
+		found.add(`{{.${match[1]}}}`);
+	}
+	return [...found].sort();
+}
+
+// Best-effort readable stand-ins so previews aren't just "{{.Code}}" text
+function sampleValueFor(field: string): string {
+	if (/code/i.test(field)) return '123456';
+	if (/email/i.test(field)) return 'user@example.com';
+	if (/name/i.test(field)) return 'Jane Doe';
+	if (/url|link/i.test(field)) return 'https://example.com';
+	return `Sample ${field}`;
+}
+
+function fillTemplateSample(source: string): string {
+	return source.replace(VARIABLE_PATTERN, (_match, field: string) => sampleValueFor(field));
+}
+
+interface DiscoveredTemplate {
+	name: string;
+	path: string;
+	absPath: string;
+	source: string;
+}
+
+// internal/template/*.html; each file is one named template
+function discoverTemplates(): DiscoveredTemplate[] {
+	if (!existsSync(TEMPLATES_DIR)) return [];
+	return readdirSync(TEMPLATES_DIR, { withFileTypes: true })
+		.filter((entry) => entry.isFile() && entry.name.endsWith('.html'))
+		.map((entry) => {
+			const absPath = join(TEMPLATES_DIR, entry.name);
+			return {
+				name: entry.name.slice(0, -'.html'.length),
+				path: toPosix(relative(REPO_ROOT, absPath)),
+				absPath,
+				source: readFileSync(absPath, 'utf8')
+			};
+		})
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Renders sample-filled HTML in a real page so the email preview is trustworthy
+async function renderTemplatePreview(
+	browser: Browser,
+	template: DiscoveredTemplate
+): Promise<TemplateEntry> {
+	const context = await browser.newContext({ viewport: TEMPLATE_VIEWPORT, colorScheme: 'light' });
+	const page: Page = await context.newPage();
+	await page.setContent(fillTemplateSample(template.source), { waitUntil: 'networkidle' });
+	await page.evaluate(() => document.fonts.ready);
+
+	// html/body paint the full viewport regardless of content height; clip to the real content box
+	const contentBox = await page.evaluate(() => {
+		const rect = document.body.getBoundingClientRect();
+		return { width: Math.ceil(rect.width), height: Math.ceil(rect.height) };
+	});
+
+	const screenshotAbsPath = join(SCREENSHOTS_DIR, 'templates', `${template.name}.png`);
+	mkdirSync(dirname(screenshotAbsPath), { recursive: true });
+	await page.screenshot({
+		path: screenshotAbsPath,
+		clip: { x: 0, y: 0, width: contentBox.width, height: contentBox.height }
+	});
+
+	await context.close();
+
+	return {
+		name: template.name,
+		path: template.path,
+		variables: extractVariables(template.source),
+		screenshot: toPosix(relative(REPO_ROOT, screenshotAbsPath))
+	};
+}
+
+function writeTemplatesJson(templates: TemplateEntry[]): void {
+	const manifest = {
+		generatedBy: 'make docs',
+		templates
+	};
+	mkdirSync(DOCS_DIR, { recursive: true });
+	writeFileSync(TEMPLATES_JSON_PATH, `${JSON.stringify(manifest, null, '\t')}\n`);
+}
+
 // img src must be relative to docs/, not repo root
 function toDocsRelative(repoRootRelativePath: string): string {
 	return toPosix(relative(DOCS_DIR, join(REPO_ROOT, repoRootRelativePath)));
 }
 
 // Styled after v5's catalog; only visual language reused
-function renderCatalogHtml(routes: RouteEntry[]): string {
+function renderCatalogHtml(routes: RouteEntry[], templates: TemplateEntry[]): string {
 	const catalogRoutes = routes.map((route) => ({
 		...route,
 		states: route.states.map((state) => ({
@@ -446,6 +548,11 @@ function renderCatalogHtml(routes: RouteEntry[]): string {
 		}))
 	}));
 	const routesJson = JSON.stringify(catalogRoutes).replace(/</g, '\\u003c');
+	const catalogTemplates = templates.map((template) => ({
+		...template,
+		screenshot: toDocsRelative(template.screenshot)
+	}));
+	const templatesJson = JSON.stringify(catalogTemplates).replace(/</g, '\\u003c');
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -508,6 +615,9 @@ function renderCatalogHtml(routes: RouteEntry[]): string {
   .state { border: 1px solid #e2e2e2; border-radius: 6px; overflow: hidden; }
   .state figure { margin: 0; background: #f4f4f4; aspect-ratio: 16/10; display: flex; align-items: center; justify-content: center; position: relative; }
   .state img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  /* Templates vary wildly in aspect ratio; fit the whole email instead of cropping it */
+  .state.template-card figure { aspect-ratio: 16/10; }
+  .state.template-card img { object-fit: contain; }
   .placeholder { color: #aaa; font-size: 12px; font-family: ui-monospace, Menlo, monospace; text-align: center; padding: 12px; }
   .state-body { padding: 10px 12px; }
   .state-name { font-weight: 600; font-size: 13px; margin: 0 0 4px; }
@@ -526,6 +636,7 @@ function renderCatalogHtml(routes: RouteEntry[]): string {
 <!-- Generated by make docs - do not hand-edit -->
 <script>
 const ROUTES = ${routesJson};
+const TEMPLATES = ${templatesJson};
 </script>
 
 <div id="app">
@@ -533,6 +644,8 @@ const ROUTES = ${routesJson};
     <h1>Route Catalog</h1>
     <input id="search" type="search" placeholder="Search routes..." autocomplete="off">
     <nav id="nav"></nav>
+    <div class="group-label" id="templates-nav-label" style="display:none">Templates</div>
+    <nav id="templates-nav"></nav>
   </aside>
   <main id="main"></main>
 </div>
@@ -579,7 +692,36 @@ function render(list) {
       </div>
     </section>
   \`).join("") : \`<p class="empty">No routes match.</p>\`;
+  document.getElementById("main").innerHTML += TEMPLATES_HTML;
 }
+
+const TEMPLATES_HTML = TEMPLATES.length ? \`
+  <div class="group-label" style="font-size:13px; margin-top:32px;">Templates</div>
+  \${TEMPLATES.map(t => \`
+    <section class="route" id="\${slug("template-" + t.name)}">
+      <h2 class="route-path">\${esc(t.name)}</h2>
+      <div class="meta">
+        <span class="tag">\${esc(t.path)}</span>
+      </div>
+      <dl class="kv">
+        <dt>Variables</dt><dd>\${esc(t.variables.join(", ") || "-")}</dd>
+      </dl>
+      <div class="states">
+        <div class="state template-card">
+          <figure>
+            <img src="\${esc(t.screenshot)}" alt="\${esc(t.name)} preview" loading="lazy"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+            <div class="placeholder" style="display:none; position:absolute; inset:0; align-items:center; justify-content:center;">no screenshot</div>
+          </figure>
+        </div>
+      </div>
+    </section>\`).join("")}
+\` : "";
+
+document.getElementById("templates-nav-label").style.display = TEMPLATES.length ? "" : "none";
+document.getElementById("templates-nav").innerHTML = TEMPLATES.map(t =>
+  \`<a href="#\${slug("template-" + t.name)}">\${esc(t.name)}</a>\`
+).join("");
 
 render(ROUTES);
 
@@ -593,7 +735,7 @@ document.getElementById("search").addEventListener("input", e => {
 const observer = new IntersectionObserver(entries => {
   entries.forEach(en => {
     if (!en.isIntersecting) return;
-    document.querySelectorAll("#nav a").forEach(a =>
+    document.querySelectorAll("#nav a, #templates-nav a").forEach(a =>
       a.classList.toggle("active", a.getAttribute("href") === "#" + en.target.id));
   });
 }, { rootMargin: "-10% 0px -80% 0px" });
@@ -606,12 +748,14 @@ document.querySelectorAll(".route").forEach(el => observer.observe(el));
 `;
 }
 
-function writeCatalogHtml(routes: RouteEntry[]): void {
+function writeCatalogHtml(routes: RouteEntry[], templates: TemplateEntry[]): void {
 	mkdirSync(DOCS_DIR, { recursive: true });
-	writeFileSync(CATALOG_HTML_PATH, renderCatalogHtml(routes));
+	writeFileSync(CATALOG_HTML_PATH, renderCatalogHtml(routes, templates));
 }
 
 async function main(): Promise<void> {
+	const discoveredTemplates = discoverTemplates();
+
 	const routes = discoverRoutes(ROUTES_DIR, []).sort((a, b) => a.urlPath.localeCompare(b.urlPath));
 
 	const missing = routes.filter((route) => !existsSync(fixtureFileFor(route.urlPath)));
@@ -641,9 +785,14 @@ async function main(): Promise<void> {
 
 	const server = await serveDist(DIST_DIR, PORT);
 	const routeEntries: RouteEntry[] = [];
+	const templates: TemplateEntry[] = [];
 	try {
 		const browser = await chromium.launch();
 		try {
+			for (const template of discoveredTemplates) {
+				templates.push(await renderTemplatePreview(browser, template));
+			}
+
 			for (const route of routes) {
 				const fixture = readJson<RouteFixture>(fixtureFileFor(route.urlPath));
 				const stateNames = Object.keys(fixture.states ?? {}).sort();
@@ -679,9 +828,11 @@ async function main(): Promise<void> {
 		server.close();
 	}
 
+	writeTemplatesJson(templates);
 	writeRoutesJson(routeEntries);
-	writeCatalogHtml(routeEntries);
+	writeCatalogHtml(routeEntries, templates);
 
+	console.log(`==> make docs: wrote ${templates.length} template(s) to docs/templates.json`);
 	console.log(`==> make docs: wrote ${routeEntries.length} route(s) to docs/routes.json`);
 }
 

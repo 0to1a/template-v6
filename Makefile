@@ -118,8 +118,8 @@ build: _check-tools gen ## Produce the single production artifact: bin/server
 	mkdir -p bin
 	go build -o bin/server ./cmd/server
 
-docs: _check-tools gen ## Regenerate docs/routes.json, route-catalog.html, and screenshots (no backend/DB needed)
-	@echo "==> generating route catalog (build + Playwright screenshots)"
+docs: _check-tools gen ## Regenerate docs/routes.json, docs/templates.json, route-catalog.html, and screenshots (no backend/DB needed)
+	@echo "==> generating route catalog (build + Playwright screenshots) and template manifest"
 	cd web && bun run docs
 	@touch web/dist/.gitkeep
-	@echo "==> wrote docs/routes.json, docs/route-catalog.html, docs/screenshots/"
+	@echo "==> wrote docs/routes.json, docs/templates.json, docs/route-catalog.html, docs/screenshots/"
