@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -15,6 +16,7 @@ import (
 	"project/internal/gen/db"
 	"project/internal/health"
 	"project/internal/mail"
+	"project/internal/platform/background"
 	"project/internal/platform/config"
 	"project/internal/platform/database"
 	"project/internal/user"
@@ -48,6 +50,15 @@ func run() error {
 	if err := database.Migrate(ctx, pool, migrations); err != nil {
 		return err
 	}
+
+	// Pings the DB every minute until the server stops; failures are logged only
+	pingCtx, stopPing := context.WithCancel(ctx)
+	defer stopPing()
+	pingTicker := time.NewTicker(time.Minute)
+	defer pingTicker.Stop()
+	go background.Run(pingCtx, pingTicker.C, func(ctx context.Context) error {
+		return database.Ping(ctx, pool)
+	})
 
 	queries := db.New(pool)
 
