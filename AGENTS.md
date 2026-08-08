@@ -1,5 +1,7 @@
 # Working Rules
 
+<!-- template-origin: 0to1a/template-v6 -->
+
 ## Execution
 - Think Before Coding: inspect relevant code and one analog.
 - Simplicity First: choose the smallest complete solution.
