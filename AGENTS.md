@@ -12,7 +12,7 @@
 - Work in order: SQL, proto, backend, registration, route, fixture, generation, tests.
 - Register domains once in `cmd/server/register_<domain>.go` and `main.go`.
 - Never edit generated files. Batch SQL and proto before `make gen`.
-- Background services: implement on `internal/platform/background.Run` (ctx + injectable ticker channel), register once via `cmd/server/register_<name>.go` returning a `stop func()` that `main.go` defers.
+- Background services: implement jobs on `internal/platform/background.Run` (ctx + injectable ticker channel). All jobs live in one `cmd/server/background_register.go`, each as its own `func(context.Context) error`, wired via `registerBackgroundJob(ctx, job, interval)`; `registerBackground` combines their `stop func()`s and `main.go` defers the result once.
 
 ## Safety
 - Connect requires auth unless allowlisted in `cmd/server/main.go`.
