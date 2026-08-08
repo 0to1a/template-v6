@@ -30,12 +30,6 @@ const VIEWPORT = { width: 1280, height: 800 };
 // of the frame as side padding and leaves the fixed-size thumbnail box mostly empty
 const TEMPLATE_VIEWPORT = { width: 600, height: 800 };
 
-interface GenerateSpec {
-	count: number;
-	seed: number;
-	template?: unknown;
-}
-
 interface ErrorSpec {
 	code: string;
 	message?: string;
@@ -160,72 +154,6 @@ function serveDist(root: string, port: number): Promise<Server> {
 	return new Promise((resolve) => server.listen(port, () => resolve(server)));
 }
 
-// $generate: seeded PRNG builds deterministic mock arrays
-function seededRandom(seed: number): () => number {
-	let state = seed >>> 0 || 0x9e3779b9;
-	return () => {
-		state ^= state << 13;
-		state >>>= 0;
-		state ^= state >>> 17;
-		state ^= state << 5;
-		state >>>= 0;
-		return state / 0xffffffff;
-	};
-}
-
-function instantiateTemplate(template: unknown, index: number, rand: () => number): unknown {
-	if (typeof template === 'string') {
-		return template
-			.replace(/\{\{index\}\}/g, String(index + 1))
-			.replace(/\{\{seed\}\}/g, () => String(Math.floor(rand() * 1_000_000)));
-	}
-	if (Array.isArray(template)) {
-		return template.map((item) => instantiateTemplate(item, index, rand));
-	}
-	if (template !== null && typeof template === 'object') {
-		const out: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(template as Record<string, unknown>)) {
-			out[key] = instantiateTemplate(value, index, rand);
-		}
-		return out;
-	}
-	return template;
-}
-
-function isGenerateNode(value: unknown): value is { $generate: GenerateSpec } {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		!Array.isArray(value) &&
-		typeof (value as Record<string, unknown>).$generate === 'object'
-	);
-}
-
-function resolveGenerators(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(resolveGenerators);
-	if (value !== null && typeof value === 'object') {
-		if (isGenerateNode(value)) {
-			const spec = value.$generate;
-			const rand = seededRandom(spec.seed);
-			const items: unknown[] = [];
-			for (let i = 0; i < spec.count; i += 1) {
-				items.push(
-					spec.template !== undefined
-						? instantiateTemplate(spec.template, i, rand)
-						: { id: i + 1, seed: Math.floor(rand() * 1_000_000) }
-				);
-			}
-			return items;
-		}
-		const out: Record<string, unknown> = {};
-		for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-			out[key] = resolveGenerators(val);
-		}
-		return out;
-	}
-	return value;
-}
-
 // Reproduces connect's error-json mapping (not public API)
 const CODE_TO_HTTP_STATUS: Record<string, number> = {
 	canceled: 499,
@@ -300,7 +228,7 @@ function mockSummaryFor(state: StateFixture, mergedRpc: Record<string, unknown>)
 
 	const rpcKeys = Object.keys(state.rpc ?? {}).sort();
 	for (const key of rpcKeys) {
-		parts.push(summarizeRpcMock(key, resolveGenerators(mergedRpc[key])));
+		parts.push(summarizeRpcMock(key, mergedRpc[key]));
 	}
 
 	if (parts.length === 0) return 'No RPC calls; static view with no mock data.';
@@ -384,7 +312,7 @@ async function renderState(
 			await routeHandle.fulfill({
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify(resolveGenerators(mock))
+				body: JSON.stringify(mock)
 			});
 		}
 	);
