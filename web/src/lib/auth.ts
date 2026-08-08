@@ -9,24 +9,17 @@ function hasLocalStorage(): boolean {
 }
 
 export function getAccessToken(): string | null {
-	if (!hasLocalStorage()) return memoryToken;
-	return localStorage.getItem(ACCESS_TOKEN_KEY);
+	return hasLocalStorage() ? localStorage.getItem(ACCESS_TOKEN_KEY) : memoryToken;
 }
 
 export function setAccessToken(token: string): void {
-	if (!hasLocalStorage()) {
-		memoryToken = token;
-		return;
-	}
-	localStorage.setItem(ACCESS_TOKEN_KEY, token);
+	if (hasLocalStorage()) localStorage.setItem(ACCESS_TOKEN_KEY, token);
+	else memoryToken = token;
 }
 
 export function clearAccessToken(): void {
-	if (!hasLocalStorage()) {
-		memoryToken = null;
-		return;
-	}
-	localStorage.removeItem(ACCESS_TOKEN_KEY);
+	if (hasLocalStorage()) localStorage.removeItem(ACCESS_TOKEN_KEY);
+	else memoryToken = null;
 }
 
 export function isAuthenticated(): boolean {
