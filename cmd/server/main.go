@@ -40,6 +40,10 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// Stops before pool.Close() runs (defers unwind LIFO)
+	stopBackground := registerBackground(ctx, pool)
+	defer stopBackground()
+
 	// Up-only; failure aborts startup, never guesses schema
 	migrations, err := fs.Sub(dbfs.Migrations, "migrations")
 	if err != nil {

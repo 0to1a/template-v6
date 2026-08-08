@@ -12,6 +12,7 @@
 - Work in order: SQL, proto, backend, registration, route, fixture, generation, tests.
 - Register domains once in `cmd/server/register_<domain>.go` and `main.go`.
 - Never edit generated files. Batch SQL and proto before `make gen`.
+- Background jobs: add a `Run(ctx, deps, ticks <-chan time.Time)` loop under `internal/platform/<name>`, then start/stop it from `cmd/server/register_background.go` (see `dbping`). Inject the ticker/clock so tests don't sleep.
 
 ## Safety
 - Connect requires auth unless allowlisted in `cmd/server/main.go`.
