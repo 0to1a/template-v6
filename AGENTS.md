@@ -1,5 +1,10 @@
 # Working Rules
 
+<!-- template-origin: 0to1a/template-v6 -->
+<!-- Scanner contract: a repo is a template-v6 derivative iff its root AGENTS.md
+     contains the line above verbatim (exact string match, no case/whitespace
+     drift). Missing file, missing marker, or a near-miss all mean false. -->
+
 ## Execution
 - Think Before Coding: inspect relevant code and one analog.
 - Simplicity First: choose the smallest complete solution.
