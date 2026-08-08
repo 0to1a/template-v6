@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -17,6 +18,7 @@ import (
 	"project/internal/mail"
 	"project/internal/platform/config"
 	"project/internal/platform/database"
+	"project/internal/platform/dbping"
 	"project/internal/user"
 )
 
@@ -39,6 +41,13 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+
+	// Stops before pool.Close() runs (defers unwind LIFO)
+	pingCtx, stopPing := context.WithCancel(ctx)
+	defer stopPing()
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	go dbping.Run(pingCtx, pool, ticker.C)
 
 	// Up-only; failure aborts startup, never guesses schema
 	migrations, err := fs.Sub(dbfs.Migrations, "migrations")
